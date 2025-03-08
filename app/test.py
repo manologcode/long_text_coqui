@@ -3,7 +3,7 @@ import time
 import sys
 
 BASE_URL = "http://localhost:5008"  # Cambia esto si la API está en otro servidor
-
+AUDIO_FILES_DIR = "/app/audio_files/"
 def text_to_speech(text, voice="Xavier Hayasaka", lang="es"):
     """Envía una solicitud a la API para convertir texto a voz."""
     url = f"{BASE_URL}/text-to-speech"
@@ -39,7 +39,7 @@ def download_audio(audio_url, output_file="output.mp3"):
     """Descarga el archivo de audio generado."""
     response = requests.get(audio_url)
     if response.status_code == 200:
-        with open(output_file, "wb") as f:
+        with open(AUDIO_FILES_DIR + output_file, "wb") as f:
             f.write(response.content)
         print(f"Audio descargado como {output_file}")
     else:
