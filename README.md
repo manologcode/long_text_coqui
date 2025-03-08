@@ -24,6 +24,7 @@ Para llamarlos el archivo test proporciona un ejemplo de como usarlo con python
    ```bash
     docker run -d \
     --name long_text_coqui \
+    -v ./:/app/audio_files \
     -p 5008:5008 \
     -e SERVER_URL_COQUI_XTTS=http://192.168.1.69:8820 \
     manologcode/long_text_coqui
@@ -41,4 +42,6 @@ Para llamarlos el archivo test proporciona un ejemplo de como usarlo con python
    ```
 
    Esto debería generar un audio con el texto proporcionado.
+
+
 
