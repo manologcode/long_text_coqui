@@ -1,5 +1,5 @@
 from fastapi import FastAPI, BackgroundTasks, HTTPException
-from fastapi.responses import FileResponse
+from fastapi.responses import RedirectResponse, FileResponse
 from pydantic import BaseModel
 import requests
 import os
@@ -130,6 +130,10 @@ async def process_text_to_speech(text: str, voice: str, lang: str, job_id: str):
         logger.error(f"Error en trabajo {job_id}: {str(e)}")
         tasks_status[job_id]["status"] = "failed"
         tasks_status[job_id]["error_message"] = str(e)
+
+@app.get("/")
+async def read_root():
+    return RedirectResponse(url="/docs", status_code=302)
 
 @app.post("/text-to-speech", response_model=TextToSpeechResponse)
 async def text_to_speech(request: TextToSpeechRequest, background_tasks: BackgroundTasks):
