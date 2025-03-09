@@ -8,10 +8,10 @@
 - Soporta múltiples idiomas.
 - Utiliza Docker para facilitar la implementación y ejecución.
 
-## Requisitos
+## Servicios externos de dependencia
 
-- Docker instalado en tu máquina.
-- Acceso a una instancia de Coqui XTTS.
+En general, en mi servidor self-hosted, todos los servicios corren en Docker. Esta aplicación depende de que tengas ejecutándose servicios como los siguientes ejemplos:
+   - Generador de texto a audio: [lxtts-streaming-server GitHub](https://github.com/manologcode/xtts-streaming-server)
 
 ## Instrucciones de Uso
 
@@ -31,7 +31,7 @@ Para llamarlos el archivo test proporciona un ejemplo de como usarlo con python
 
    ```
 
-   Asegúrate de reemplazar `http://192.168.1.69:8820` con la URL de tu servidor Coqui XTTS.
+   Asegúrate de reemplazar `http://192.168.1.69:8820` con la URL o nombre del servicio de tu servidor Coqui XTTS.
 
 2. **Probar la conversión de texto a voz:**
 
