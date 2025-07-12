@@ -11,8 +11,6 @@ import base64
 from pydub import AudioSegment
 import logging
 
-
-
 # Configurar logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
@@ -40,6 +38,7 @@ class TextToSpeechResponse(BaseModel):
 class Config:
     AUDIO_FILES_DIR = "audio_files"
     TEMP_DIR = "temp_audio"
+    AUDIO_TAGS_DIR = "effects"  
     SERVER_URL = os.getenv("SERVER_URL_VOICE_XTTS", "http://192.168.1.69:8820")
     SPEAKERS_JSON_PATH = 'studio_speakers.json'
     MAX_CHUNK_SIZE = 230
@@ -47,10 +46,44 @@ class Config:
 # Crear directorios si no existen
 os.makedirs(Config.AUDIO_FILES_DIR, exist_ok=True)
 os.makedirs(Config.TEMP_DIR, exist_ok=True)
+os.makedirs(Config.AUDIO_TAGS_DIR, exist_ok=True)
 
 tasks_status = {}
 
+def extract_tags_and_clean_text(text: str):
+    """
+    Extrae las etiquetas del texto y devuelve una lista de elementos ordenados.
+    Cada elemento es un diccionario con 'type' ('text' o 'tag') y 'content'.
+    """
+    # Patrón para encontrar etiquetas como <click2>, <silence1>, etc.
+    tag_pattern = r'<([^>]+)>'
+    
+    elements = []
+    last_end = 0
+    
+    for match in re.finditer(tag_pattern, text):
+        # Agregar texto antes de la etiqueta
+        if match.start() > last_end:
+            text_content = text[last_end:match.start()].strip()
+            if text_content:
+                elements.append({'type': 'text', 'content': text_content})
+        
+        # Agregar la etiqueta
+        tag_name = match.group(1)
+        elements.append({'type': 'tag', 'content': tag_name})
+        
+        last_end = match.end()
+    
+    # Agregar texto restante después de la última etiqueta
+    if last_end < len(text):
+        text_content = text[last_end:].strip()
+        if text_content:
+            elements.append({'type': 'text', 'content': text_content})
+    
+    return elements
+
 def split_text_by_punctuation(text: str, max_length: int = Config.MAX_CHUNK_SIZE):
+    """Divide el texto por puntuación manteniendo el tamaño máximo."""
     signos_puntuacion = re.compile(r'([.,;:!?])')
     palabras = signos_puntuacion.split(text)
     trozos = []
@@ -103,31 +136,88 @@ def process_text_chunk(text_chunk: str, voice: str, lang: str, chunk_id: int, jo
         tasks_status[job_id]["errors"].append(f"Error en fragmento {chunk_id}: {str(e)}")
         return None
 
-def merge_audio_files(filenames: list, output_filename: str):
+def get_tag_audio_file(tag_name: str):
+    """Obtiene la ruta del archivo de audio para una etiqueta específica."""
+    tag_file = os.path.join(Config.AUDIO_TAGS_DIR, f"{tag_name}.mp3")
+    if os.path.exists(tag_file):
+        return tag_file
+    else:
+        logger.warning(f"Archivo de etiqueta no encontrado: {tag_file}")
+        return None
+
+def merge_audio_elements(audio_files: list, output_filename: str):
     """Une múltiples archivos de audio en uno solo."""
     try:
-        combined = AudioSegment.from_file(filenames[0])
-        for archivo in filenames[1:]:
+        if not audio_files:
+            raise Exception("No hay archivos de audio para unir")
+        
+        # Filtrar archivos que no existen
+        existing_files = [f for f in audio_files if f and os.path.exists(f)]
+        
+        if not existing_files:
+            raise Exception("No se encontraron archivos de audio válidos")
+        
+        combined = AudioSegment.from_file(existing_files[0])
+        for archivo in existing_files[1:]:
             sound = AudioSegment.from_file(archivo)
             combined += sound
+        
         combined.export(output_filename, format="mp3", bitrate="256k")
         return output_filename
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error al unir archivos: {str(e)}")
 
 async def process_text_to_speech(text: str, voice: str, lang: str, job_id: str):
-    """Procesa el texto dividiéndolo si es necesario."""
+    """Procesa el texto dividiéndolo si es necesario y manejando las etiquetas."""
     try:
         tasks_status[job_id]["status"] = "processing"
-        chunks = split_text_by_punctuation(text) if len(text) > Config.MAX_CHUNK_SIZE else [text]
-        path_files = [process_text_chunk(chunk, voice, lang, i, job_id) for i, chunk in enumerate(chunks)]
-        path_files = [p for p in path_files if p]
         
-        if not path_files:
+        # Extraer etiquetas y limpiar texto
+        elements = extract_tags_and_clean_text(text)
+        
+        if not elements:
+            raise Exception("No hay contenido para procesar")
+        
+        audio_files = []
+        text_chunk_counter = 0
+        
+        for element in elements:
+            if element['type'] == 'text':
+                # Procesar texto
+                text_content = element['content']
+                
+                if len(text_content) > Config.MAX_CHUNK_SIZE:
+                    # Dividir texto largo en chunks
+                    chunks = split_text_by_punctuation(text_content)
+                    for chunk in chunks:
+                        if chunk.strip():
+                            audio_file = process_text_chunk(chunk, voice, lang, text_chunk_counter, job_id)
+                            if audio_file:
+                                audio_files.append(audio_file)
+                            text_chunk_counter += 1
+                else:
+                    # Procesar como un solo chunk
+                    if text_content.strip():
+                        audio_file = process_text_chunk(text_content, voice, lang, text_chunk_counter, job_id)
+                        if audio_file:
+                            audio_files.append(audio_file)
+                        text_chunk_counter += 1
+            
+            elif element['type'] == 'tag':
+                # Procesar etiqueta
+                tag_name = element['content']
+                tag_audio_file = get_tag_audio_file(tag_name)
+                if tag_audio_file:
+                    audio_files.append(tag_audio_file)
+                    logger.info(f"Agregado archivo de etiqueta: {tag_name}")
+                else:
+                    logger.warning(f"Archivo de etiqueta no encontrado: {tag_name}")
+        
+        if not audio_files:
             raise Exception("No se generaron archivos de audio")
 
         output_filename = f"{Config.AUDIO_FILES_DIR}/{job_id}_complete.mp3"
-        merge_audio_files(path_files, output_filename)
+        merge_audio_elements(audio_files, output_filename)
         
         tasks_status[job_id].update({
             "status": "completed",
@@ -135,8 +225,11 @@ async def process_text_to_speech(text: str, voice: str, lang: str, job_id: str):
             "output_file": output_filename
         })
         
-        for file in path_files:
-            os.remove(file)
+        # Limpiar archivos temporales (solo los generados, no los de etiquetas)
+        for file in audio_files:
+            if file and file.startswith(Config.TEMP_DIR) and os.path.exists(file):
+                os.remove(file)
+                
     except Exception as e:
         logger.error(f"Error en trabajo {job_id}: {str(e)}")
         tasks_status[job_id]["status"] = "failed"

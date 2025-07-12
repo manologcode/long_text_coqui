@@ -43,5 +43,9 @@ Para llamarlos el archivo test proporciona un ejemplo de como usarlo con python
 
    Esto debería generar un audio con el texto proporcionado.
 
+## extras
+
+  Se ha añadido para poder forzar efectos y silencios añadiendo las etiquetas <silence1>, <click1> <click2> a modo. de experimento para la locución de noticias 
+
 
 
