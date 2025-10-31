@@ -8,8 +8,10 @@ import json
 import uuid
 import re
 import base64
+import unicodedata
 from pydub import AudioSegment
 import logging
+from num2words import num2words
 
 # Configurar logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
@@ -50,21 +52,146 @@ os.makedirs(Config.AUDIO_TAGS_DIR, exist_ok=True)
 
 tasks_status = {}
 
+def clean_spanish_text(text: str) -> str:
+    """
+    Limpia el texto eliminando emojis, iconos y caracteres especiales,
+    dejando solo texto válido en español.
+    
+    Args:
+        text (str): Texto original que puede contener emojis e iconos
+        
+    Returns:
+        str: Texto limpio con solo caracteres válidos en español
+    """
+    if not text:
+        return ""
+    
+    # Normalizar el texto Unicode (NFD - descomponer caracteres acentuados)
+    normalized_text = unicodedata.normalize('NFD', text)
+    
+    # Definir caracteres válidos para español
+    # Incluye letras básicas, acentuadas, números, puntuación común y espacios
+    valid_chars_pattern = r'[a-zA-ZáéíóúüñÁÉÍÓÚÜÑ0-9\s\.,;:!?¿¡\-_"\'()\[\]{}\n\r\t]'
+    
+    # Filtrar solo los caracteres válidos
+    cleaned_chars = []
+    for char in normalized_text:
+        if re.match(valid_chars_pattern, char):
+            cleaned_chars.append(char)
+        # Reemplazar algunos caracteres especiales comunes por equivalentes
+        elif char in '""''':
+            cleaned_chars.append('"')
+        elif char in '–—':
+            cleaned_chars.append('-')
+        elif char == '…':
+            cleaned_chars.append('...')
+        # Ignorar otros caracteres (emojis, iconos, etc.)
+    
+    cleaned_text = ''.join(cleaned_chars)
+    
+    # Limpiar espacios múltiples y saltos de línea excesivos
+    cleaned_text = re.sub(r'\s+', ' ', cleaned_text)  # Múltiples espacios -> un espacio
+    cleaned_text = re.sub(r'\n+', '\n', cleaned_text)  # Múltiples saltos -> un salto
+    cleaned_text = cleaned_text.strip()
+    
+    # Limpiar puntuación duplicada
+    cleaned_text = re.sub(r'([.,;:!?]){2,}', r'\1', cleaned_text)
+    
+    # Asegurar que las oraciones tengan estructura básica válida
+    # Eliminar puntuación al inicio de palabras (excepto signos de apertura)
+    cleaned_text = re.sub(r'\b[.,;:!?]+([a-zA-ZáéíóúüñÁÉÍÓÚÜÑ])', r' \1', cleaned_text)
+    
+    # Limpiar espacios alrededor de puntuación
+    cleaned_text = re.sub(r'\s+([.,;:!?])', r'\1', cleaned_text)
+    cleaned_text = re.sub(r'([¿¡])\s+', r'\1', cleaned_text)
+    
+    return cleaned_text.strip()
+
+def number_to_text_spanish(number: int) -> str:
+    """
+    Convierte un número entero a su representación en texto en español usando num2words.
+    
+    Args:
+        number (int): Número entero a convertir
+        
+    Returns:
+        str: Representación en texto del número en español
+    """
+    try:
+        return num2words(number, lang='es')
+    except Exception as e:
+        # Si hay algún error, devolver el número como string
+        logger.warning(f"Error al convertir número {number} a texto: {e}")
+        return str(number)
+
+def convert_numbers_to_text(text: str) -> str:
+    """
+    Convierte todos los números encontrados en el texto a su representación en español.
+    
+    Args:
+        text (str): Texto que puede contener números
+        
+    Returns:
+        str: Texto con los números convertidos a palabras en español
+    """
+    def replace_number(match):
+        number_str = match.group(0)
+        try:
+            # Manejar números con comas como separador de miles (ej: 1,000)
+            clean_number = number_str.replace(',', '')
+            number = int(clean_number)
+            return number_to_text_spanish(number)
+        except ValueError:
+            # Si no se puede convertir, devolver el número original
+            return number_str
+    
+    # Patrón para encontrar números enteros (incluye números con comas)
+    pattern = r'\b\d{1,3}(?:,\d{3})*\b|\b\d+\b'
+    
+    return re.sub(pattern, replace_number, text)
+
 def extract_tags_and_clean_text(text: str):
     """
     Extrae las etiquetas del texto y devuelve una lista de elementos ordenados.
     Cada elemento es un diccionario con 'type' ('text' o 'tag') y 'content'.
+    Además, limpia el texto de emojis e iconos.
     """
+    # Primero limpiar el texto de emojis e iconos, pero preservar las etiquetas
     # Patrón para encontrar etiquetas como <click2>, <silence1>, etc.
     tag_pattern = r'<([^>]+)>'
     
+    # Extraer etiquetas temporalmente para preservarlas durante la limpieza
+    tags_found = []
+    tag_placeholders = []
+    
+    for i, match in enumerate(re.finditer(tag_pattern, text)):
+        tag_placeholder = f"__TAG_PLACEHOLDER_{i}__"
+        tags_found.append(match.group(0))  # Etiqueta completa con < >
+        tag_placeholders.append(tag_placeholder)
+    
+    # Reemplazar etiquetas con placeholders temporales
+    text_with_placeholders = text
+    for i, tag in enumerate(tags_found):
+        text_with_placeholders = text_with_placeholders.replace(tag, tag_placeholders[i], 1)
+    
+    # Limpiar el texto (sin las etiquetas)
+    cleaned_text = clean_spanish_text(text_with_placeholders)
+    
+    # Convertir números a texto
+    cleaned_text = convert_numbers_to_text(cleaned_text)
+    
+    # Restaurar las etiquetas
+    for i, placeholder in enumerate(tag_placeholders):
+        cleaned_text = cleaned_text.replace(placeholder, tags_found[i])
+    
+    # Ahora procesar el texto limpio para extraer elementos
     elements = []
     last_end = 0
     
-    for match in re.finditer(tag_pattern, text):
+    for match in re.finditer(tag_pattern, cleaned_text):
         # Agregar texto antes de la etiqueta
         if match.start() > last_end:
-            text_content = text[last_end:match.start()].strip()
+            text_content = cleaned_text[last_end:match.start()].strip()
             if text_content:
                 elements.append({'type': 'text', 'content': text_content})
         
@@ -75,8 +202,8 @@ def extract_tags_and_clean_text(text: str):
         last_end = match.end()
     
     # Agregar texto restante después de la última etiqueta
-    if last_end < len(text):
-        text_content = text[last_end:].strip()
+    if last_end < len(cleaned_text):
+        text_content = cleaned_text[last_end:].strip()
         if text_content:
             elements.append({'type': 'text', 'content': text_content})
     
