@@ -127,6 +127,8 @@ def number_to_text_spanish(number: int) -> str:
 def convert_numbers_to_text(text: str) -> str:
     """
     Convierte todos los números encontrados en el texto a su representación en español.
+    Maneja números con separadores de miles (comas y puntos) y números decimales.
+    Evita convertir códigos, versiones, IPs y otros patrones que no son números hablados.
     
     Args:
         text (str): Texto que puede contener números
@@ -134,21 +136,139 @@ def convert_numbers_to_text(text: str) -> str:
     Returns:
         str: Texto con los números convertidos a palabras en español
     """
+    def should_convert_number(match, text, start_pos, end_pos):
+        """Determina si un número debe convertirse basándose en el contexto"""
+        number_str = match.group(0)
+        
+        # Obtener contexto antes y después del número
+        context_before = text[max(0, start_pos-10):start_pos].lower()
+        context_after = text[end_pos:min(len(text), end_pos+10)].lower()
+        
+        # Patrones que indican que NO se debe convertir
+        skip_patterns = [
+            # Versiones de software
+            r'versi[oó]n\s*$',
+            r'v\d*\.?\s*$',
+            
+            # Códigos
+            r'c[oó]digo\s*:?\s*$',
+            r'ref\s*:?\s*$',
+            r'id\s*:?\s*$',
+            
+            # Direcciones IP y URLs
+            r'ip\s*:?\s*$',
+            r'http[s]?\s*:?\s*$',
+            
+            # Fechas
+            r'fecha\s*:?\s*$',
+            
+            # Teléfonos
+            r'tel[eé]fono\s*:?\s*$',
+            r'tel\s*:?\s*$',
+            r'phone\s*:?\s*$',
+        ]
+        
+        # Verificar patrones antes del número
+        for pattern in skip_patterns:
+            if re.search(pattern, context_before):
+                return False
+        
+        # Patrones después que indican códigos o versiones
+        after_patterns = [
+            r'^\.\d+',  # Más números después de punto (versiones, IPs)
+            r'^[a-zA-Z]',  # Letras inmediatamente después
+        ]
+        
+        for pattern in after_patterns:
+            if re.search(pattern, context_after):
+                return False
+        
+        # Si tiene muchos puntos separados, probablemente es un código
+        if number_str.count('.') > 2:
+            return False
+            
+        return True
+    
     def replace_number(match):
         number_str = match.group(0)
+        start_pos = match.start()
+        end_pos = match.end()
+        
+        # Verificar si debemos convertir este número
+        if not should_convert_number(match, text, start_pos, end_pos):
+            return number_str
+        
         try:
-            # Manejar números con comas como separador de miles (ej: 1,000)
-            clean_number = number_str.replace(',', '')
-            number = int(clean_number)
-            return number_to_text_spanish(number)
-        except ValueError:
+            # Caso 1: Números con coma como separador de miles y punto decimal (ej: 1,234.56)
+            if ',' in number_str and '.' in number_str:
+                # Verificar patrón: dígitos,dígitos,dígitos.dígitos
+                if re.match(r'^\d{1,3}(?:,\d{3})+\.\d{1,2}$', number_str):
+                    # Separar parte entera y decimal
+                    integer_part, decimal_part = number_str.split('.')
+                    clean_integer = integer_part.replace(',', '')
+                    
+                    integer_num = int(clean_integer)
+                    decimal_num = int(decimal_part)
+                    
+                    result = number_to_text_spanish(integer_num)
+                    if decimal_num > 0:
+                        result += f" coma {number_to_text_spanish(decimal_num)}"
+                    return result
+            
+            # Caso 2: Números con coma como separador de miles (ej: 1,000 o 1,000,000)
+            elif ',' in number_str and '.' not in number_str:
+                # Verificar que sea un patrón válido de separador de miles
+                if re.match(r'^\d{1,3}(?:,\d{3})+$', number_str):
+                    clean_number = number_str.replace(',', '')
+                    number = int(clean_number)
+                    return number_to_text_spanish(number)
+            
+            # Caso 3: Números con punto como separador de miles (ej: 1.000 o 1.000.000)
+            elif '.' in number_str:
+                # Verificar si es separador de miles (múltiples grupos de 3 dígitos)
+                if re.match(r'^\d{1,3}(?:\.\d{3})+$', number_str):
+                    clean_number = number_str.replace('.', '')
+                    number = int(clean_number)
+                    return number_to_text_spanish(number)
+                # Verificar si es número decimal (solo un punto con 1-2 dígitos después)
+                elif re.match(r'^\d+\.\d{1,2}$', number_str):
+                    number = float(number_str)
+                    integer_part = int(number)
+                    decimal_part = int(round((number - integer_part) * 100))
+                    
+                    result = number_to_text_spanish(integer_part)
+                    if decimal_part > 0:
+                        result += f" coma {number_to_text_spanish(decimal_part)}"
+                    return result
+            
+            # Caso 4: Números enteros simples
+            elif number_str.isdigit():
+                number = int(number_str)
+                return number_to_text_spanish(number)
+            
+            # Si no coincide con ningún patrón conocido, devolver original
+            return number_str
+            
+        except (ValueError, OverflowError):
             # Si no se puede convertir, devolver el número original
+            logger.warning(f"No se pudo convertir el número: {number_str}")
             return number_str
     
-    # Patrón para encontrar números enteros (incluye números con comas)
-    pattern = r'\b\d{1,3}(?:,\d{3})*\b|\b\d+\b'
+    # Patrón mejorado para encontrar diferentes tipos de números en orden de prioridad:
+    patterns = [
+        r'\b\d{1,3}(?:,\d{3})+\.\d{1,2}\b',       # Con comas y decimales
+        r'\b\d{1,3}(?:,\d{3})+\b',                # Con comas como separadores de miles
+        r'\b\d{1,3}(?:\.\d{3})+\b',               # Con puntos como separadores de miles
+        r'\b\d+\.\d{1,2}\b',                      # Decimales simples
+        r'\b\d+\b'                                # Números enteros simples
+    ]
     
-    return re.sub(pattern, replace_number, text)
+    # Aplicar cada patrón en orden de prioridad
+    result_text = text
+    for pattern in patterns:
+        result_text = re.sub(pattern, replace_number, result_text)
+    
+    return result_text
 
 def extract_tags_and_clean_text(text: str):
     """

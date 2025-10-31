@@ -1,5 +1,5 @@
 services:
-  long_text_coqui:
+  app:
     image: manologcode/long_text_coqui
     build: .
     restart: always
