@@ -66,16 +66,19 @@ def clean_spanish_text(text: str) -> str:
     if not text:
         return ""
     
-    # Normalizar el texto Unicode (NFD - descomponer caracteres acentuados)
-    normalized_text = unicodedata.normalize('NFD', text)
+    # Reemplazar ñ y Ñ ANTES de normalizar
+    text = text.replace('ñ', 'ny').replace('Ñ', 'Ny')
     
-    # Definir caracteres válidos para español
+    # Normalizar el texto Unicode (NFD - descomponer caracteres acentuados)
+    text_normalized = unicodedata.normalize('NFD', text)
+    
+    # Definir caracteres válidos para español (sin ñ/Ñ ya que fueron reemplazadas)
     # Incluye letras básicas, acentuadas, números, puntuación común y espacios
-    valid_chars_pattern = r'[a-zA-ZáéíóúüñÁÉÍÓÚÜÑ0-9\s\.,;:!?¿¡\-_"\'()\[\]{}\n\r\t]'
+    valid_chars_pattern = r'[a-zA-ZáéíóúüÁÉÍÓÚÜ0-9\s\.,;:!?¿¡\-_"\'()\[\]{}\n\r\t]'
     
     # Filtrar solo los caracteres válidos
     cleaned_chars = []
-    for char in normalized_text:
+    for char in text_normalized:
         if re.match(valid_chars_pattern, char):
             cleaned_chars.append(char)
         # Reemplazar algunos caracteres especiales comunes por equivalentes
@@ -104,9 +107,7 @@ def clean_spanish_text(text: str) -> str:
     # Limpiar espacios alrededor de puntuación
     cleaned_text = re.sub(r'\s+([.,;:!?])', r'\1', cleaned_text)
     cleaned_text = re.sub(r'([¿¡])\s+', r'\1', cleaned_text)
-
-    cleaned_text = cleaned_text.replace('ñ', 'ny')
-    
+  
     return cleaned_text.strip()
 
 def number_to_text_spanish(number: int) -> str:
