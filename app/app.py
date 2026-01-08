@@ -55,30 +55,24 @@ tasks_status = {}
 def clean_spanish_text(text: str) -> str:
     """
     Limpia el texto eliminando emojis, iconos y caracteres especiales,
-    dejando solo texto válido en español.
+    preservando acentos y la ñ propios del español.
     
     Args:
         text (str): Texto original que puede contener emojis e iconos
         
     Returns:
-        str: Texto limpio con solo caracteres válidos en español
+        str: Texto limpio manteniendo acentos y ñ, sin caracteres extraños
     """
     if not text:
         return ""
     
-    # Reemplazar ñ y Ñ ANTES de normalizar
-    text = text.replace('ñ', 'ny').replace('Ñ', 'Ny')
-    
-    # Normalizar el texto Unicode (NFD - descomponer caracteres acentuados)
-    text_normalized = unicodedata.normalize('NFD', text)
-    
-    # Definir caracteres válidos para español (sin ñ/Ñ ya que fueron reemplazadas)
-    # Incluye letras básicas, acentuadas, números, puntuación común y espacios
-    valid_chars_pattern = r'[a-zA-ZáéíóúüÁÉÍÓÚÜ0-9\s\.,;:!?¿¡\-_"\'()\[\]{}\n\r\t]'
+    # Definir caracteres válidos para español (incluyendo acentos y ñ)
+    # Incluye letras acentuadas, ñ/Ñ, números, puntuación común y espacios
+    valid_chars_pattern = r'[a-zA-ZáéíóúüÁÉÍÓÚÜñÑ0-9\s\.,;:!?¿¡\-_"\'()\[\]{}\n\r\t]'
     
     # Filtrar solo los caracteres válidos
     cleaned_chars = []
-    for char in text_normalized:
+    for char in text:
         if re.match(valid_chars_pattern, char):
             cleaned_chars.append(char)
         # Reemplazar algunos caracteres especiales comunes por equivalentes
