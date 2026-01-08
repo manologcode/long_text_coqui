@@ -104,6 +104,8 @@ def clean_spanish_text(text: str) -> str:
     # Limpiar espacios alrededor de puntuación
     cleaned_text = re.sub(r'\s+([.,;:!?])', r'\1', cleaned_text)
     cleaned_text = re.sub(r'([¿¡])\s+', r'\1', cleaned_text)
+
+    cleaned_text = cleaned_text.replace('ñ', 'ny')
     
     return cleaned_text.strip()
 
