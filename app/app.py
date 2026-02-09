@@ -1,5 +1,5 @@
 from fastapi import FastAPI, BackgroundTasks, HTTPException
-from fastapi.responses import RedirectResponse, FileResponse
+from fastapi.responses import RedirectResponse, FileResponse, StreamingResponse
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 import requests
@@ -36,6 +36,13 @@ class TextToSpeechResponse(BaseModel):
     audio_url: str
     job_id: str
     status: str
+
+class TTSStreamRequest(BaseModel):
+    text: str
+    voice: str = "Xavier Hayasaka"
+    language: str = "es"
+    add_wav_header: bool = True
+    stream_chunk_size: str = "20"
 
 class Config:
     AUDIO_FILES_DIR = "audio_files"
@@ -506,6 +513,81 @@ async def get_audio(job_id: str):
     if not output_file or not os.path.exists(output_file):
         raise HTTPException(status_code=404, detail="Archivo no encontrado")
     return FileResponse(path=output_file, media_type="audio/mpeg", filename=f"audio_{job_id}.mp3")
+
+def stream_audio_response(response_content: bytes, chunk_size: int = 8192):
+    """Generador para hacer streaming del audio en chunks."""
+    for i in range(0, len(response_content), chunk_size):
+        yield response_content[i:i + chunk_size]
+
+@app.post("/tts_stream")
+async def tts_stream(request: TTSStreamRequest):
+    """
+    Endpoint de streaming directo para Text-to-Speech.
+    
+    Parameters:
+    - text: Texto a convertir
+    - voice: Voz a usar (por defecto "Xavier Hayasaka")
+    - language: Idioma (por defecto "es")
+    - add_wav_header: Agregar encabezado WAV (por defecto True)
+    - stream_chunk_size: Tamaño de los chunks para streaming (por defecto "20")
+    
+    Returns:
+    - Stream de audio en formato MP3
+    """
+    try:
+        # Cargar los speakers del JSON
+        with open(Config.SPEAKERS_JSON_PATH, 'r') as archivo:
+            studio_speakers = json.load(archivo)
+        
+        # Obtener embeddings de la voz especificada
+        speaker_embeddings = studio_speakers.get(request.voice)
+        if not speaker_embeddings:
+            raise HTTPException(
+                status_code=400, 
+                detail=f"Voz '{request.voice}' no encontrada. Voces disponibles: {list(studio_speakers.keys())}"
+            )
+        
+        # Preparar el payload para la API TTS
+        payload = {
+            "text": request.text,
+            "language": request.language,
+            "speaker_embedding": speaker_embeddings["speaker_embedding"],
+            "gpt_cond_latent": speaker_embeddings["gpt_cond_latent"],
+            "add_wav_header": request.add_wav_header,
+            "stream_chunk_size": request.stream_chunk_size
+        }
+        
+        # Llamar a la API TTS
+        response = requests.post(f"{Config.SERVER_URL}/tts_stream", json=payload, stream=True)
+        
+        if response.status_code != 200:
+            raise HTTPException(
+                status_code=response.status_code, 
+                detail=f"Error en la API TTS: {response.text}"
+            )
+        
+        # Obtener el contenido de audio
+        audio_content = response.content
+        
+        # Decodificar si viene en base64
+        try:
+            audio_content = base64.b64decode(audio_content)
+        except:
+            # Si no es base64 válido, usar como está
+            pass
+        
+        # Hacer streaming de la respuesta
+        return StreamingResponse(
+            stream_audio_response(audio_content),
+            media_type="audio/mpeg",
+            headers={"Content-Disposition": "attachment; filename=audio.mp3"}
+        )
+    
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error en endpoint /tts_stream: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Error procesando solicitud: {str(e)}")
 
 if __name__ == "__main__":
     import uvicorn

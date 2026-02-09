@@ -17,6 +17,51 @@ En general, en mi servidor self-hosted, todos los servicios corren en Docker. Es
 
 Para llamarlos el archivo test proporciona un ejemplo de como usarlo con python 
 
+### Endpoints Disponibles
+
+#### 1. **POST /text-to-speech** - Conversión asincrónica
+Convierte texto a voz en forma asincrónica, dividiendo textos largos automáticamente.
+
+**Body:**
+```json
+{
+  "text": "Tu texto aquí",
+  "voice": "Xavier Hayasaka",
+  "lang": "es"
+}
+```
+
+**Respuesta:**
+```json
+{
+  "job_id": "uuid-del-trabajo",
+  "status": "queued",
+  "audio_url": "/status/uuid-del-trabajo"
+}
+```
+
+#### 2. **GET /status/{job_id}** - Estado del trabajo
+Obtiene el estado actual de una tarea de síntesis.
+
+#### 3. **GET /audio/{job_id}** - Descargar audio
+Descarga el archivo MP3 generado (disponible cuando el estado es `completed`).
+
+#### 4. **POST /tts_stream** - Streaming directo
+Convierte texto a voz con respuesta en tiempo real (streaming).
+
+**Body:**
+```json
+{
+  "text": "Tu texto aquí",
+  "voice": "Xavier Hayasaka",
+  "language": "es",
+  "add_wav_header": true,
+  "stream_chunk_size": "20"
+}
+```
+
+**Respuesta:** Stream de audio MP3
+
 ### Ejecutar con Docker
 
 1. **Correr el contenedor Docker:**
