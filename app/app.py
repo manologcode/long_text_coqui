@@ -490,6 +490,16 @@ async def process_text_to_speech(text: str, voice: str, lang: str, job_id: str):
 async def read_root():
     return RedirectResponse(url="/docs", status_code=302)
 
+@app.get("/apidocs")
+async def get_apidocs():
+    """
+    Retorna la documentación de la API en formato JSON (OpenAPI 3.0.0).
+    """
+    apidocs_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), "apidocs.json")
+    if not os.path.exists(apidocs_path):
+        raise HTTPException(status_code=404, detail="Archivo apidocs.json no encontrado")
+    return FileResponse(path=apidocs_path, media_type="application/json")
+
 @app.post("/text-to-speech", response_model=TextToSpeechResponse)
 async def text_to_speech(request: TextToSpeechRequest, background_tasks: BackgroundTasks):
     job_id = str(uuid.uuid4())

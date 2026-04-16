@@ -1,0 +1,347 @@
+{
+  "openapi": "3.0.0",
+  "info": {
+    "title": "Text-to-Speech API",
+    "description": "API para convertir texto a voz usando XTTS con soporte para varias idiomas y voces. Incluye procesamiento de números, etiquetas especiales y opciones de streaming.\n\n## Requisitos de Funcionamiento\n\nEsta aplicación **REQUIERE** que el servicio externo **xtts_coqui** esté corriendo y accesible:\n\n- **Servicio**: xtts_coqui (Text-to-Speech Engine)\n- **URL por defecto**: http://192.168.1.69:8820\n- **Configuración**: La URL se puede cambiar mediante la variable de entorno `SERVER_URL_VOICE_XTTS`\n- **Endpoints del servicio requeridos**: `/tts_stream` (para procesamiento de audio)\n\nSin este servicio, los endpoints `/text-to-speech` y `/tts_stream` retornarán errores de conexión.",
+    "version": "1.0.0",
+    "contact": {
+      "name": "Support"
+    }
+  },
+  "servers": [
+    {
+      "url": "http://192.168.1.69:8000",
+      "description": "Production server"
+    }
+  ],
+  "paths": {
+    "/": {
+      "get": {
+        "summary": "Root endpoint",
+        "description": "Redirige a la documentación interactiva de la API",
+        "operationId": "read_root",
+        "responses": {
+          "302": {
+            "description": "Redirección a /docs"
+          }
+        },
+        "tags": ["Health"]
+      }
+    },
+    "/text-to-speech": {
+      "post": {
+        "summary": "Generar audio de forma asincrónica",
+        "description": "Crea una tarea para convertir texto a voz de manera asincrónica. El audio se procesa en segundo plano y se puede consultar usando el job_id retornado.",
+        "operationId": "text_to_speech",
+        "tags": ["Text-to-Speech"],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TextToSpeechRequest"
+              },
+              "example": {
+                "text": "Hola, este es un ejemplo de conversión de texto a voz.",
+                "voice": "Xavier Hayasaka",
+                "lang": "es"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Tarea creada exitosamente",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TextToSpeechResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Error en la solicitud"
+          },
+          "500": {
+            "description": "Error interno del servidor"
+          }
+        }
+      }
+    },
+    "/status/{job_id}": {
+      "get": {
+        "summary": "Obtener estado de una tarea",
+        "description": "Consulta el estado actual de una tarea de conversión de texto a voz identificada por su job_id.",
+        "operationId": "get_job_status",
+        "tags": ["Status"],
+        "parameters": [
+          {
+            "name": "job_id",
+            "in": "path",
+            "required": true,
+            "description": "ID único de la tarea",
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Estado de la tarea",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/JobStatus"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Tarea no encontrada"
+          }
+        }
+      }
+    },
+    "/audio/{job_id}": {
+      "get": {
+        "summary": "Descargar audio generado",
+        "description": "Descarga el archivo de audio MP3 generado por la tarea especificada. El status de la tarea debe ser 'completed'.",
+        "operationId": "get_audio",
+        "tags": ["Audio"],
+        "parameters": [
+          {
+            "name": "job_id",
+            "in": "path",
+            "required": true,
+            "description": "ID único de la tarea",
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Archivo de audio MP3",
+            "content": {
+              "audio/mpeg": {
+                "schema": {
+                  "type": "string",
+                  "format": "binary"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Audio aún no listo o error en procesamiento"
+          },
+          "404": {
+            "description": "Tarea o archivo no encontrado"
+          }
+        }
+      }
+    },
+    "/tts_stream": {
+      "post": {
+        "summary": "Streaming directo de texto a voz",
+        "description": "Convierte texto a voz y retorna un stream de audio en tiempo real. No requiere esperar a que finalice el procesamiento.",
+        "operationId": "tts_stream",
+        "tags": ["Text-to-Speech"],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TTSStreamRequest"
+              },
+              "example": {
+                "text": "Este es un streaming de audio en tiempo real.",
+                "voice": "Xavier Hayasaka",
+                "language": "es",
+                "add_wav_header": true,
+                "stream_chunk_size": "20"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Stream de audio en formato MP3",
+            "content": {
+              "audio/mpeg": {
+                "schema": {
+                  "type": "string",
+                  "format": "binary"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Error en la solicitud (voz no encontrada, texto vacío, etc.)"
+          },
+          "500": {
+            "description": "Error interno del servidor"
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "TextToSpeechRequest": {
+        "type": "object",
+        "required": ["text"],
+        "properties": {
+          "text": {
+            "type": "string",
+            "description": "Texto a convertir a voz. Soporta números que serán convertidos a palabras, acentos y caracteres especiales del español.",
+            "example": "Los números como 123 y 45,67 se convierten automáticamente a palabras."
+          },
+          "voice": {
+            "type": "string",
+            "default": "Xavier Hayasaka",
+            "description": "Nombre de la voz a utilizar. Debe existir en el archivo studio_speakers.json.",
+            "example": "Xavier Hayasaka"
+          },
+          "lang": {
+            "type": "string",
+            "default": "es",
+            "description": "Código de idioma (ISO 639-1). Ejemplo: es para español, en para inglés.",
+            "example": "es"
+          }
+        }
+      },
+      "TTSStreamRequest": {
+        "type": "object",
+        "required": ["text"],
+        "properties": {
+          "text": {
+            "type": "string",
+            "description": "Texto a convertir a voz de forma inmediata.",
+            "example": "Stream de audio en tiempo real"
+          },
+          "voice": {
+            "type": "string",
+            "default": "Xavier Hayasaka",
+            "description": "Nombre de la voz a utilizar.",
+            "example": "Xavier Hayasaka"
+          },
+          "language": {
+            "type": "string",
+            "default": "es",
+            "description": "Código de idioma.",
+            "example": "es"
+          },
+          "add_wav_header": {
+            "type": "boolean",
+            "default": true,
+            "description": "Agregar encabezado WAV al audio."
+          },
+          "stream_chunk_size": {
+            "type": "string",
+            "default": "20",
+            "description": "Tamaño de los chunks para el streaming en KB.",
+            "example": "20"
+          }
+        }
+      },
+      "TextToSpeechResponse": {
+        "type": "object",
+        "properties": {
+          "audio_url": {
+            "type": "string",
+            "description": "URL para consultar el estado o descargar el audio. Corresponde a /status/{job_id}.",
+            "example": "/status/550e8400-e29b-41d4-a716-446655440000"
+          },
+          "job_id": {
+            "type": "string",
+            "format": "uuid",
+            "description": "ID único de la tarea de procesamiento.",
+            "example": "550e8400-e29b-41d4-a716-446655440000"
+          },
+          "status": {
+            "type": "string",
+            "enum": ["queued", "processing", "completed", "failed"],
+            "description": "Estado actual de la tarea.",
+            "example": "queued"
+          }
+        }
+      },
+      "JobStatus": {
+        "type": "object",
+        "properties": {
+          "status": {
+            "type": "string",
+            "enum": ["queued", "processing", "completed", "failed"],
+            "description": "Estado actual de la tarea.",
+            "example": "processing"
+          },
+          "errors": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Lista de errores ocurridos durante el procesamiento.",
+            "example": []
+          },
+          "output_file": {
+            "type": "string",
+            "nullable": true,
+            "description": "Ruta del archivo de salida generado.",
+            "example": "audio_files/audio_550e8400.mp3"
+          },
+          "audio_url": {
+            "type": "string",
+            "nullable": true,
+            "description": "URL para descargar el audio una vez completado.",
+            "example": "/audio/550e8400-e29b-41d4-a716-446655440000"
+          }
+        }
+      }
+    }
+  },
+  "tags": [
+    {
+      "name": "Health",
+      "description": "Endpoints de salud y utilidad"
+    },
+    {
+      "name": "Text-to-Speech",
+      "description": "Endpoints para conversión de texto a voz"
+    },
+    {
+      "name": "Status",
+      "description": "Endpoints para consultar estado de tareas"
+    },
+    {
+      "name": "Audio",
+      "description": "Endpoints para descargar audio"
+    }
+  ],
+  "x-dependencies": {
+    "external-services": [
+      {
+        "name": "xtts_coqui",
+        "description": "Servicio de Text-to-Speech Engine basado en Coqui XTTS",
+        "required": true,
+        "default-url": "http://192.168.1.69:8820",
+        "environment-variable": "SERVER_URL_VOICE_XTTS",
+        "endpoints-required": [
+          "/tts_stream"
+        ],
+        "note": "Este servicio es CRÍTICO. Sin él, los endpoints de conversión de texto a voz no funcionarán."
+      }
+    ],
+    "configuration-files": [
+      {
+        "name": "studio_speakers.json",
+        "description": "Archivo JSON con configuración de voces y embeddings de altavoces",
+        "required": true,
+        "path": "app/studio_speakers.json",
+        "note": "Contiene los embeddings de las voces disponibles para la síntesis de voz"
+      }
+    ]
+  }
+}
